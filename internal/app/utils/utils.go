@@ -1,5 +1,14 @@
 package utils
 
+import (
+	"fmt"
+	"io/ioutil"
+	"os"
+
+	"github.com/mirkoschicchi/TFTP/internal/app/logger"
+	"github.com/pkg/errors"
+)
+
 const (
 	MAX_DATA_FIELD_LENGTH = 512
 )
@@ -16,4 +25,31 @@ func CalculateNumberOfBlocks(dataSize int) int {
 	}
 
 	return numberOfBlocks
+}
+
+func ReadFileFromFS(filename string) ([]byte, error) {
+	content, err := ioutil.ReadFile(filename)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "The error is %+v\n", err)
+		return []byte{}, errors.Wrapf(err, "cannot read file %s", filename)
+	}
+	logger.Debug("File %s has been read from file-system", filename)
+	return content, nil
+}
+
+// CreateDataBlocks returns a list of bytes array splitted in blocks
+// of size 512
+func CreateDataBlocks(fileContent []byte) [][]byte {
+	numberOfBlocks := CalculateNumberOfBlocks(len(fileContent))
+
+	var dataBlocks [][]byte
+	for i := 0; i < numberOfBlocks; i++ {
+		if i == numberOfBlocks-1 {
+			dataBlocks = append(dataBlocks, fileContent[512*i:])
+			continue
+		}
+		dataBlocks = append(dataBlocks, fileContent[512*i:512*(i+1)])
+	}
+
+	return dataBlocks
 }
