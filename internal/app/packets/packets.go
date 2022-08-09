@@ -8,7 +8,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-const TftpMaxPacketSize = 1468
+const TftpMaxPacketSize = 512
 
 // Packet represents any TFTP packet
 type Packet interface {
@@ -177,8 +177,7 @@ func wrqPacketFromBytes(b []byte) WRQPacket {
 func dataPacketFromBytes(b []byte) DataPacket {
 	var parsedPacket DataPacket
 
-	var blockNumber uint16
-	blockNumber = binary.BigEndian.Uint16(b[2:4])
+	blockNumber := binary.BigEndian.Uint16(b[2:4])
 	data := b[4:]
 	splitted := bytes.Split(data, []byte{0})
 	parsedPacket = NewDataPacket(uint16(blockNumber), splitted[0])
@@ -189,8 +188,7 @@ func dataPacketFromBytes(b []byte) DataPacket {
 func ackPacketFromBytes(b []byte) AckPacket {
 	var parsedPacket AckPacket
 
-	var blockNumber uint16
-	blockNumber = binary.BigEndian.Uint16(b[2:4])
+	blockNumber := binary.BigEndian.Uint16(b[2:4])
 
 	parsedPacket = NewAckPacket(uint16(blockNumber))
 
@@ -200,13 +198,32 @@ func ackPacketFromBytes(b []byte) AckPacket {
 func errorPacketFromBytes(b []byte) ErrorPacket {
 	var parsedPacket ErrorPacket
 
-	var errorCode uint16
-	errorCode = binary.BigEndian.Uint16(b[2:4])
-	errorMsg := b[4:]
+	errorCode := binary.BigEndian.Uint16(b[2:4])
+	errorMsg := bytes.Split(b[4:], []byte{0})[0]
 
 	parsedPacket = NewErrorPacket(errorCode, string(errorMsg))
 
 	return parsedPacket
+}
+
+func (rrqPacket RRQPacket) GetType() uint16 {
+	return opRRQ
+}
+
+func (rrqPacket WRQPacket) GetType() uint16 {
+	return opWRQ
+}
+
+func (rrqPacket DataPacket) GetType() uint16 {
+	return opDATA
+}
+
+func (rrqPacket AckPacket) GetType() uint16 {
+	return opACK
+}
+
+func (rrqPacket ErrorPacket) GetType() uint16 {
+	return opERROR
 }
 
 func ParsePacket(p []byte) (interface{}, error) {

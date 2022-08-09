@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/mirkoschicchi/TFTP/internal/app/logger"
 	"github.com/mirkoschicchi/TFTP/internal/app/packets"
@@ -24,7 +25,7 @@ func Listen() error {
 	}
 	defer initialConnection.Close()
 
-	logger.Info("Server listening on %s\n", initialConnection.LocalAddr().String())
+	logger.Info("Server listening on %s", initialConnection.LocalAddr().String())
 
 	for {
 		logger.Info("Server is waiting to receive packets from clients")
@@ -53,7 +54,7 @@ func Listen() error {
 }
 
 func handleRRQRequest(clientAddr *net.UDPAddr, rrqPacket packets.RRQPacket) error {
-	logger.Info(">>> Connecting to client having address %+v", clientAddr)
+	logger.Info(">>> Client having address %+v has requested to read file %s", clientAddr, rrqPacket.Filename)
 
 	randomTID := utils.GetRandomTID()
 	localAddr, err := net.ResolveUDPAddr("udp4", fmt.Sprintf(":%d", randomTID))
@@ -63,15 +64,18 @@ func handleRRQRequest(clientAddr *net.UDPAddr, rrqPacket packets.RRQPacket) erro
 
 	logger.Debug(">>> Server has generated a random TID: %d", randomTID)
 
+	logger.Debug(">>> Server is creating a new connection to the client using local port %d", randomTID)
 	newConnection, err := net.DialUDP("udp4", localAddr, clientAddr)
 	if err != nil {
 		return errors.Wrapf(err, "cannot instantiate new connection to machine %+v", clientAddr)
 	}
+	defer newConnection.Close()
 
 	logger.Debug(">>> Reading requested file from the file-system: %s", rrqPacket.Filename)
 	requestedFileContent, err := utils.ReadFileFromFS(rrqPacket.Filename)
 	if err != nil {
-		errorPacket := packets.NewErrorPacket(2, err.Error())
+		logger.Error("Cannot read file %s", rrqPacket.Filename)
+		errorPacket := packets.NewErrorPacket(1, fmt.Sprintf("File %s has not been found in the server. Err: %v", rrqPacket.Filename, err))
 		_, err = newConnection.Write(errorPacket.Bytes())
 		if err != nil {
 			logger.Error("%+v", err)
@@ -81,22 +85,25 @@ func handleRRQRequest(clientAddr *net.UDPAddr, rrqPacket packets.RRQPacket) erro
 	}
 
 	// Split the file in blocks of max length 512 bytes
-	fileDataBlocks := utils.CreateDataBlocks(requestedFileContent)
+	fileDataBlocks, numberOfBlocks := utils.CreateDataBlocks(requestedFileContent)
+	logger.Debug(">>> The file has been splitted into %d blocks", numberOfBlocks)
 
 	for blockCounter, dataBlock := range fileDataBlocks {
 		dataPacket := packets.NewDataPacket(uint16(blockCounter+1), dataBlock)
-		_, err = newConnection.Write(dataPacket.Bytes())
+		bytesWritten, err := newConnection.Write(dataPacket.Bytes())
 		if err != nil {
 			logger.Error("%+v", err)
 			return errors.Wrapf(err, "cannot send data to machine %+v", clientAddr)
 		}
+		logger.Debug(">>> The server has sent %d bytes to the client", bytesWritten)
 
 		var buf []byte = make([]byte, packets.TftpMaxPacketSize)
-		_, _, err := newConnection.ReadFromUDP(buf)
+		bytesReceived, _, err := newConnection.ReadFromUDP(buf)
 		if err != nil {
 			logger.Error("%+v", err)
 			return errors.Wrap(err, "cannot read client request")
 		}
+		logger.Debug("The server has received %d bytes from the client", bytesReceived)
 
 		_, err = packets.ParsePacket(buf)
 		if err != nil {
@@ -108,7 +115,7 @@ func handleRRQRequest(clientAddr *net.UDPAddr, rrqPacket packets.RRQPacket) erro
 }
 
 func handleWRQRequest(clientAddr *net.UDPAddr, wrqPacket packets.WRQPacket) error {
-	logger.Info(">>> Connecting to client having address %+v", clientAddr)
+	logger.Info(">>> Client having address %+v has requested to write file %s", clientAddr, wrqPacket.Filename)
 
 	randomTID := utils.GetRandomTID()
 	localAddr, err := net.ResolveUDPAddr("udp4", fmt.Sprintf(":%d", randomTID))
@@ -119,10 +126,12 @@ func handleWRQRequest(clientAddr *net.UDPAddr, wrqPacket packets.WRQPacket) erro
 	logger.Info(">>> Server has generated a random TID: %d", randomTID)
 
 	newConnection, err := net.DialUDP("udp4", localAddr, clientAddr)
+	newConnection.SetDeadline(time.Now().Add(5 * time.Second))
 	if err != nil {
 		logger.Error("%+v", err)
 		return errors.Wrapf(err, "cannot instantiate new connection to machine %+v", clientAddr)
 	}
+	logger.Debug("Server has initiated a new connection to the client using local port %d", randomTID)
 
 	// Create initial ACK packet
 	ackPacket := packets.NewAckPacket(0)

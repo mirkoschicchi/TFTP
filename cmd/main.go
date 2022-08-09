@@ -32,5 +32,4 @@ func main() {
 			log.Fatalf("Cannot connect to server: %+v", err)
 		}
 	}
-
 }

@@ -1,9 +1,7 @@
 package utils
 
 import (
-	"fmt"
 	"io/ioutil"
-	"os"
 
 	"github.com/mirkoschicchi/TFTP/internal/app/logger"
 	"github.com/pkg/errors"
@@ -30,7 +28,6 @@ func CalculateNumberOfBlocks(dataSize int) int {
 func ReadFileFromFS(filename string) ([]byte, error) {
 	content, err := ioutil.ReadFile(filename)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "The error is %+v\n", err)
 		return []byte{}, errors.Wrapf(err, "cannot read file %s", filename)
 	}
 	logger.Debug("File %s has been read from file-system", filename)
@@ -39,7 +36,7 @@ func ReadFileFromFS(filename string) ([]byte, error) {
 
 // CreateDataBlocks returns a list of bytes array splitted in blocks
 // of size 512
-func CreateDataBlocks(fileContent []byte) [][]byte {
+func CreateDataBlocks(fileContent []byte) ([][]byte, int) {
 	numberOfBlocks := CalculateNumberOfBlocks(len(fileContent))
 
 	var dataBlocks [][]byte
@@ -51,5 +48,5 @@ func CreateDataBlocks(fileContent []byte) [][]byte {
 		dataBlocks = append(dataBlocks, fileContent[512*i:512*(i+1)])
 	}
 
-	return dataBlocks
+	return dataBlocks, numberOfBlocks
 }

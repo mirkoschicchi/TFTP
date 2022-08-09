@@ -26,7 +26,7 @@ func NewClient() Client {
 func (c *Client) RequestFile(serverAddr *net.UDPAddr, requestedFilePath string) error {
 	var localAddress *net.UDPAddr = &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: c.TID}
 
-	fmt.Printf("The client local address is %+v\n", localAddress)
+	logger.Debug("The client local address is %+v", localAddress)
 
 	initialConnection, err := net.DialUDP("udp4", localAddress, serverAddr)
 	if err != nil {
@@ -34,7 +34,7 @@ func (c *Client) RequestFile(serverAddr *net.UDPAddr, requestedFilePath string) 
 	}
 	c.Conn = initialConnection
 
-	fmt.Printf("Connection to server at %+v has been created\n", serverAddr)
+	logger.Info("Connection to server at %+v has been created", serverAddr)
 
 	rrqPacket := packets.NewRRQPacket(requestedFilePath, packets.Netascii)
 	_, err = c.Conn.Write(rrqPacket.Bytes())
@@ -42,7 +42,7 @@ func (c *Client) RequestFile(serverAddr *net.UDPAddr, requestedFilePath string) 
 		return errors.Wrap(err, "cannot write to server")
 	}
 
-	fmt.Println("I have sent the first RRQ packet to the server")
+	logger.Info("Client has sent RRQ packet to the server")
 	initialConnection.Close()
 
 	newConnection, err := net.ListenUDP("udp4", localAddress)
@@ -51,26 +51,26 @@ func (c *Client) RequestFile(serverAddr *net.UDPAddr, requestedFilePath string) 
 	}
 	defer newConnection.Close()
 
-	fmt.Print("New connection has been created\n")
+	logger.Debug("New connection to the client has been created")
 	var receivedBytes []byte
 	var isFinalBlock bool = false
 
 	for !isFinalBlock {
 		var buf []byte = make([]byte, packets.TftpMaxPacketSize)
-		_, remoteAddr, err := newConnection.ReadFromUDP(buf)
+		bytesReceived, remoteAddr, err := newConnection.ReadFromUDP(buf)
 		if err != nil {
 			panic(err)
 		}
 
 		// Parse the bytes received into a packet
-		parsedPacket, err := packets.ParsePacket(buf)
+		parsedPacket, err := packets.ParsePacket(buf[:bytesReceived])
 		if err != nil {
 			return errors.Wrap(err, "cannot parse incoming packet")
 		}
 
 		switch parsedPacket := parsedPacket.(type) {
 		case packets.ErrorPacket:
-			logger.Info("Error packet with following content has been received: %+v", parsedPacket)
+			logger.Error("Error packet with following content has been received: %v", parsedPacket)
 			return nil
 		case packets.DataPacket:
 			receivedBytes = append(receivedBytes, parsedPacket.Data...)
@@ -141,7 +141,8 @@ func (c *Client) WriteFile(serverAddr *net.UDPAddr, fileToWritePath string) erro
 		return errors.Wrap(err, "cannot read requested file from server FS")
 	}
 
-	fileDataBlocks := utils.CreateDataBlocks(fileToWriteContent)
+	fileDataBlocks, numberOfBlocks := utils.CreateDataBlocks(fileToWriteContent)
+	logger.Debug(">>> The file has been splitted into %d blocks", numberOfBlocks)
 
 	for _, dataBlock := range fileDataBlocks {
 		var buf []byte = make([]byte, packets.TftpMaxPacketSize)
@@ -165,7 +166,7 @@ func (c *Client) WriteFile(serverAddr *net.UDPAddr, fileToWritePath string) erro
 				return errors.Wrapf(err, "cannot send data to machine %+v", serverAddr)
 			}
 		default:
-			errorPacket := packets.NewErrorPacket(1, "invalid packet received")
+			errorPacket := packets.NewErrorPacket(4, "invalid packet received")
 			_, err = newConnection.Write(errorPacket.Bytes())
 			if err != nil {
 				logger.Error("%+v", err)
