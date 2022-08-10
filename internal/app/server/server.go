@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/signal"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/mirkoschicchi/TFTP/internal/app/logger"
@@ -13,7 +16,18 @@ import (
 	"github.com/pkg/errors"
 )
 
-func Listen() error {
+type Server struct {
+	Wg *sync.WaitGroup
+}
+
+func NewServer() *Server {
+	server := new(Server)
+	server.Wg = new(sync.WaitGroup)
+
+	return server
+}
+
+func (s *Server) Listen() error {
 	localAddr, err := net.ResolveUDPAddr("udp4", "127.0.0.1:69")
 	if err != nil {
 		return errors.Wrap(err, "cannot resolve the local UDP address")
@@ -27,33 +41,54 @@ func Listen() error {
 
 	logger.Info("Server listening on %s", initialConnection.LocalAddr().String())
 
+	signalChannel := make(chan os.Signal)
+	quitChannel := make(chan bool)
+	signal.Notify(signalChannel, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-signalChannel
+		logger.Warning("CTRL-C has been pressed. Shutting down the server")
+		initialConnection.Close()
+		quitChannel <- true
+	}()
+
+LOOP:
 	for {
-		logger.Info("Server is waiting to receive packets from clients")
-		var buf []byte = make([]byte, packets.TftpMaxPacketSize)
-		_, remoteAddr, err := initialConnection.ReadFromUDP(buf)
-		if err != nil {
-			return errors.Wrap(err, "cannot read client request")
-		}
-
-		parsedPacket, err := packets.ParsePacket(buf)
-		if err != nil {
-			return errors.Wrap(err, "cannot parse incoming packet")
-		}
-
-		switch parsedPacket := parsedPacket.(type) {
-		case packets.RRQPacket:
-			go handleRRQRequest(remoteAddr, parsedPacket)
-		case packets.WRQPacket:
-			go handleWRQRequest(remoteAddr, parsedPacket)
+		select {
+		case <-quitChannel:
+			break LOOP
 		default:
+			logger.Info("Server is waiting to receive packets from clients")
+			var buf []byte = make([]byte, packets.TftpMaxPacketSize)
+			_, remoteAddr, err := initialConnection.ReadFromUDP(buf)
+			if err != nil {
+				return errors.Wrap(err, "cannot read client request")
+			}
 
+			parsedPacket, err := packets.ParsePacket(buf)
+			if err != nil {
+				return errors.Wrap(err, "cannot parse incoming packet")
+			}
+
+			switch parsedPacket := parsedPacket.(type) {
+			case packets.RRQPacket:
+				s.Wg.Add(1)
+				go s.handleRRQRequest(remoteAddr, parsedPacket)
+			case packets.WRQPacket:
+				s.Wg.Add(1)
+				go s.handleWRQRequest(remoteAddr, parsedPacket)
+			default:
+				logger.Warning("Unexpected packet received. Ignoring it")
+			}
 		}
 	}
 
+	s.Wg.Wait()
+	logger.Info("The server and related go-routines has been shutted down")
 	return nil
 }
 
-func handleRRQRequest(clientAddr *net.UDPAddr, rrqPacket packets.RRQPacket) error {
+func (s *Server) handleRRQRequest(clientAddr *net.UDPAddr, rrqPacket packets.RRQPacket) error {
+	defer s.Wg.Done()
 	logger.Info(">>> Client having address %+v has requested to read file %s", clientAddr, rrqPacket.Filename)
 
 	randomTID := utils.GetRandomTID()
@@ -114,7 +149,8 @@ func handleRRQRequest(clientAddr *net.UDPAddr, rrqPacket packets.RRQPacket) erro
 	return nil
 }
 
-func handleWRQRequest(clientAddr *net.UDPAddr, wrqPacket packets.WRQPacket) error {
+func (s *Server) handleWRQRequest(clientAddr *net.UDPAddr, wrqPacket packets.WRQPacket) error {
+	defer s.Wg.Done()
 	logger.Info(">>> Client having address %+v has requested to write file %s", clientAddr, wrqPacket.Filename)
 
 	randomTID := utils.GetRandomTID()

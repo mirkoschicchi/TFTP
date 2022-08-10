@@ -15,7 +15,8 @@ func main() {
 
 	if role == "server" {
 		logger.Info("Starting the server and listening for incoming connections")
-		err := server.Listen()
+		s := server.NewServer()
+		err := s.Listen()
 		if err != nil {
 			logger.Fatal("The server has failed during listening: %+v", err)
 		}
