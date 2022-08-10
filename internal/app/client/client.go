@@ -1,10 +1,10 @@
 package client
 
 import (
-	"fmt"
 	"net"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/mirkoschicchi/TFTP/internal/app/logger"
 	"github.com/mirkoschicchi/TFTP/internal/app/packets"
@@ -57,6 +57,7 @@ func (c *Client) RequestFile(serverAddr *net.UDPAddr, requestedFilePath string) 
 
 	for !isFinalBlock {
 		var buf []byte = make([]byte, packets.TftpMaxPacketSize)
+		newConnection.SetReadDeadline(time.Now().Add(5 * time.Second))
 		bytesReceived, remoteAddr, err := newConnection.ReadFromUDP(buf)
 		if err != nil {
 			panic(err)
@@ -125,17 +126,20 @@ func (c *Client) WriteFile(serverAddr *net.UDPAddr, fileToWritePath string) erro
 	if err != nil {
 		return errors.Wrap(err, "error while listening for incoming UDP connections")
 	}
-	// defer newConnection.Close()
+
+	// var buf []byte = make([]byte, packets.TftpMaxPacketSize)
+	// newConnection.SetReadDeadline(time.Now().Add(5 * time.Second))
+	// _, remoteAddr, err := newConnection.ReadFromUDP(buf)
+	defer newConnection.Close()
 
 	logger.Debug("New connection has been created")
 
-	logger.Info(">>> Reading requested file from the file-system: %s", wrqPacket.Filename)
-	fileToWriteContent, err := utils.ReadFileFromFS(wrqPacket.Filename)
+	logger.Info(">>> Reading file that needs to be written from the file-system: %s", fileToWritePath)
+	fileToWriteContent, err := utils.ReadFileFromFS(fileToWritePath)
 	if err != nil {
 		errorPacket := packets.NewErrorPacket(2, err.Error())
 		_, err = newConnection.Write(errorPacket.Bytes())
 		if err != nil {
-			fmt.Println(err)
 			return errors.Wrapf(err, "cannot send error packet to server %+v", serverAddr)
 		}
 		return errors.Wrap(err, "cannot read requested file from server FS")
@@ -146,6 +150,7 @@ func (c *Client) WriteFile(serverAddr *net.UDPAddr, fileToWritePath string) erro
 
 	for _, dataBlock := range fileDataBlocks {
 		var buf []byte = make([]byte, packets.TftpMaxPacketSize)
+		newConnection.SetReadDeadline(time.Now().Add(5 * time.Second))
 		_, remoteAddress, err := newConnection.ReadFromUDP(buf)
 		if err != nil {
 			return errors.Wrap(err, "cannot read client request")

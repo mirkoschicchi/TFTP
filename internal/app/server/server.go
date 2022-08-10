@@ -133,6 +133,7 @@ func (s *Server) handleRRQRequest(clientAddr *net.UDPAddr, rrqPacket packets.RRQ
 		logger.Debug(">>> The server has sent %d bytes to the client", bytesWritten)
 
 		var buf []byte = make([]byte, packets.TftpMaxPacketSize)
+		newConnection.SetReadDeadline(time.Now().Add(5 * time.Second))
 		bytesReceived, _, err := newConnection.ReadFromUDP(buf)
 		if err != nil {
 			logger.Error("%+v", err)
@@ -182,6 +183,7 @@ func (s *Server) handleWRQRequest(clientAddr *net.UDPAddr, wrqPacket packets.WRQ
 
 	for !isFinalBlock {
 		var buf []byte = make([]byte, packets.TftpMaxPacketSize)
+		newConnection.SetReadDeadline(time.Now().Add(5 * time.Second))
 		_, _, err := newConnection.ReadFromUDP(buf)
 		if err != nil {
 			panic(err)

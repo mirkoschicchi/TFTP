@@ -10,6 +10,7 @@ var zapLog *zap.Logger
 func init() {
 	var err error
 	config := zap.NewProductionConfig()
+	config.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
 	enccoderConfig := zap.NewProductionEncoderConfig()
 	enccoderConfig.StacktraceKey = "" // to hide stacktrace info
 	enccoderConfig.EncodeTime = zapcore.RFC3339TimeEncoder
